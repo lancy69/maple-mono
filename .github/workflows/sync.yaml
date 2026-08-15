@@ -12,11 +12,11 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync main with upstream
+      - name: Sync with upstream
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api \
             --method POST \
             "/repos/${GITHUB_REPOSITORY}/merge-upstream" \
-            -f branch=main
+            -f branch=variable
