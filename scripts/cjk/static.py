@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
-
-from fontTools.ttLib.tables._m_e_t_a import table__m_e_t_a
+from typing import TYPE_CHECKING
 
 from scripts.feature.apply import apply_binary_features
-from scripts.feature.catalog import CJK_FEATURES
+from scripts.feature.compiler import CJK_FEATURES
 from scripts.font_ops.glyph_transform import (
     change_glyph_width_or_scale,
     smart_change_width,
 )
+from scripts.font_ops.metadata import set_meta_table
 from scripts.font_ops.metrics import adjust_line_height, verify_glyph_width
 from scripts.font_ops.names import (
     parse_style_name,
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
         ResolvedConfig,
     )
     from scripts.config.runtime import BuildRuntimeContext
-    from scripts.font_ops.fonttools import MetaTable, TTFont
+    from scripts.font_ops.fonttools import TTFont
 
 
 def build_cjk_family_name(font_config: ResolvedConfig, locale_suffix: str) -> str:
@@ -52,12 +51,7 @@ def apply_cjk_meta_table(
     font: TTFont, language_tag: str, code_page_range1: int
 ) -> None:
     font.table("OS/2").ulCodePageRange1 = code_page_range1
-    meta = table__m_e_t_a("meta")
-    cast("MetaTable", meta).data = {
-        "dlng": language_tag,
-        "slng": language_tag,
-    }
-    font["meta"] = meta
+    set_meta_table(font, language_tag, language_tag)
 
 
 def apply_cjk_names(
@@ -99,6 +93,41 @@ def apply_cjk_metrics(
     )
 
 
+def _apply_custom_cjk_scale_or_narrow(
+    font: TTFont,
+    font_config: ResolvedConfig,
+    target_width: int | None,
+    scale_factor: tuple[float, float] | None,
+    special_scale_names: list[str],
+) -> bool:
+    match_width = 2 * font_config.glyph_width
+    is_slim = font_config.get_width_name() != "SL"
+    if target_width and is_slim:
+        font.table("hhea").advanceWidthMax = target_width
+        logger.warning(
+            "Changed CJK glyph width; mark font as proportional and skip width checks"
+        )
+    elif target_width is None:
+        target_width = match_width
+
+    resolved_scale = scale_factor or (1.0, 1.0)
+    if scale_factor:
+        logger.debug(
+            "Scale CJK glyphs: width_factor=%s, height_factor=%s",
+            scale_factor[0],
+            scale_factor[1],
+        )
+
+    change_glyph_width_or_scale(
+        font=font,
+        match_width=match_width,
+        target_width=target_width,
+        scale_factor=resolved_scale,
+        special_names=special_scale_names,
+    )
+    return bool(target_width and is_slim)
+
+
 def apply_cjk_width_transform(
     font: TTFont,
     font_config: ResolvedConfig,
@@ -120,33 +149,14 @@ def apply_cjk_width_transform(
 
     skip_verify = font_config.get_nf_variant().suffix == "Propo"
     if target_width or scale_factor:
-        match_width = 2 * font_config.glyph_width
-        is_slim = font_config.get_width_name() != "SL"
-        if target_width and is_slim:
-            font.table("hhea").advanceWidthMax = target_width
-            logger.warning(
-                "Changed CJK glyph width; mark font as proportional and skip width checks"
-            )
-        elif target_width is None:
-            target_width = match_width
-
-        if scale_factor:
-            logger.debug(
-                "Scale CJK glyphs: width_factor=%s, height_factor=%s",
-                scale_factor[0],
-                scale_factor[1],
-            )
-        else:
-            scale_factor = (1.0, 1.0)
-
-        change_glyph_width_or_scale(
+        custom_proportional = _apply_custom_cjk_scale_or_narrow(
             font=font,
-            match_width=match_width,
+            font_config=font_config,
             target_width=target_width,
             scale_factor=scale_factor,
-            special_names=special_scale_names,
+            special_scale_names=special_scale_names,
         )
-        skip_verify = skip_verify or bool(target_width and is_slim)
+        skip_verify = skip_verify or custom_proportional
     elif font_config.get_width_name():
         change_glyph_width_or_scale(
             font=font,

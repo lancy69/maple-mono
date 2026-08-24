@@ -33,8 +33,8 @@ class TaskName(str, Enum):
     DESIGNSPACE = "designspace"
     FEA = "fea"
     NF = "nf"
+    GOOGLEFONTS = "googlefonts"
     RELEASE = "release"
-    PAGE = "page"
     PUBLISH = "publish"
 
 

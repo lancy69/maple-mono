@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 from os import makedirs
 from pathlib import Path
@@ -8,8 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from fontTools.designspaceLib import DesignSpaceDocument
 
-from scripts.font_ops.constant import DEFAULT_NAMING_MAPPING
-from scripts.font_ops.fonttools import load_font
+from scripts.utils.hashing import hash_files
 
 if TYPE_CHECKING:
     from scripts.config.base import ResolvedConfig
@@ -17,6 +15,41 @@ if TYPE_CHECKING:
 
 FONT_ARTIFACT_SUFFIXES = {".otf", ".ttf", ".woff", ".woff2", ".zip"}
 IGNORED_OUTPUT_DIRS = {".cjk-temp", "temp"}
+
+DEFAULT_STATIC_STYLES: tuple[str, ...] = (
+    "Thin",
+    "ThinItalic",
+    "ExtraLight",
+    "ExtraLightItalic",
+    "Light",
+    "LightItalic",
+    "Regular",
+    "Italic",
+    "Medium",
+    "MediumItalic",
+    "SemiBold",
+    "SemiBoldItalic",
+    "Bold",
+    "BoldItalic",
+    "ExtraBold",
+    "ExtraBoldItalic",
+)
+
+
+def variable_output_dir(output_root: str | Path, locale: str | None = None) -> Path:
+    root = Path(output_root)
+    if locale is None:
+        return root / "Variable"
+    return root / f"Variable-{locale}"
+
+
+def static_output_dir(output_root: str | Path, locale: str) -> Path:
+    return Path(output_root) / locale
+
+
+def merged_variable_name(postscript_prefix: str, italic: bool) -> str:
+    suffix = "-Italic" if italic else ""
+    return f"{postscript_prefix}{suffix}[wght].ttf"
 
 
 def is_target_style_file(file_name: str, target_styles: list[str] | None) -> bool:
@@ -31,7 +64,7 @@ def is_target_style_file(file_name: str, target_styles: list[str] | None) -> boo
 def expected_static_styles(target_styles: list[str] | None) -> tuple[str, ...]:
     if target_styles is not None:
         return tuple(target_styles)
-    return tuple(DEFAULT_NAMING_MAPPING)
+    return DEFAULT_STATIC_STYLES
 
 
 def expected_static_font_paths(
@@ -74,13 +107,6 @@ def require_unique_targets(paths: list[Path], stage: str) -> None:
         raise ValueError(f"Duplicate {stage} output paths: {formatted}")
 
 
-def _hash_file(hasher: Any, path: Path, relative_to: Path) -> None:
-    hasher.update(path.relative_to(relative_to).as_posix().encode("utf-8"))
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            hasher.update(chunk)
-
-
 def _dimensions_identity(source_dir: Path) -> dict[str, object]:
     identity: dict[str, object] = {}
     for path in sorted(source_dir.glob("*.designspace")):
@@ -93,8 +119,8 @@ def _dimensions_identity(source_dir: Path) -> dict[str, object]:
             )
         identity[path.name] = dimensions
     if set(identity) != {
-        "MapleMono[wght].designspace",
-        "MapleMono-Italic[wght].designspace",
+        "MapleMono.designspace",
+        "MapleMono-Italic.designspace",
     }:
         raise ValueError(
             "Expected regular and italic Maple Mono designspaces with "
@@ -105,12 +131,11 @@ def _dimensions_identity(source_dir: Path) -> dict[str, object]:
 
 def _feature_fingerprint(source_dir: Path) -> str:
     root = Path(source_dir)
-    paths = sorted((root / "features").glob("*.fea"))
-
-    hasher = hashlib.sha256()
-    for path in paths:
-        _hash_file(hasher, path, root)
-    return hasher.hexdigest()
+    files = {
+        path.relative_to(root).as_posix(): path
+        for path in (root / "features").glob("*.fea")
+    }
+    return hash_files(files)
 
 
 def base_cache_identity(
@@ -157,11 +182,3 @@ def ensure_base_output_dirs(runtime_context: BuildRuntimeContext) -> None:
     makedirs(runtime_context.output_variable, exist_ok=True)
     makedirs(runtime_context.output_ttf, exist_ok=True)
     makedirs(runtime_context.output_ttf_hinted, exist_ok=True)
-
-
-def read_font_vertical_metric(font_path: str | Path) -> tuple[int, int]:
-    font = load_font(font_path)
-    try:
-        return (font["hhea"].ascender, font["hhea"].descender)
-    finally:
-        font.close()

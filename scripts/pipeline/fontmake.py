@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from scripts.external.process import create_process_executor, run_process_jobs
 from scripts.feature.apply import prepare_designspace_features
 from scripts.font_ops.fonttools import load_font
 from scripts.font_ops.glyphs import (
@@ -36,6 +35,7 @@ from scripts.utils.logging import (
     logger,
     set_log_task,
 )
+from scripts.utils.process import create_process_executor, run_process_jobs
 
 if TYPE_CHECKING:
     from concurrent.futures import Executor
@@ -205,8 +205,8 @@ def prepare_fontmake_sources(
     raw_ttf_dir = temp_path / "ttf"
     raw_otf_dir = temp_path / "otf"
     source_specs: tuple[tuple[Path, SourceStyle], ...] = (
-        (source_dir / "MapleMono[wght].designspace", "regular"),
-        (source_dir / "MapleMono-Italic[wght].designspace", "italic"),
+        (source_dir / "MapleMono.designspace", "regular"),
+        (source_dir / "MapleMono-Italic.designspace", "italic"),
     )
 
     shutil.rmtree(temp_path, ignore_errors=True)
@@ -326,6 +326,7 @@ def postprocess_variable_font_job(job: VariablePostprocessJob) -> Path:
         if is_italic:
             add_ital_axis_to_stat(font)
         alias_codepoints(font, job.font_config.codepoint_alias)
+        set_monospace_metadata(font)
         verify_glyph_width(
             font=font,
             expect_widths=job.font_config.get_valid_glyph_width_list(),

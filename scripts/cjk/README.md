@@ -4,10 +4,10 @@ The CJK subsystem converts a source CJK variable font into reusable Maple bases 
 
 | Workflow             | Command                          | Output and cache                                                                                                                                                                            |
 | -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Build reusable bases | `uv run task.py cjk --preset cn` | Writes `source/cjk/<locale>/` variable bases, a variable digest/archive, optional static instances, a static digest, and a static archive. The standalone task always rebuilds the regular and italic variable bases. |
+| Build reusable bases | `uv run task.py cjk --preset cn` | Writes `sources/cjk/<locale>/` variable bases, a variable digest/archive, optional static instances, a static digest, and a static archive. The standalone task always rebuilds the regular and italic variable bases. |
 | Build release fonts  | `uv run build.py --cjk cn`       | Merges selected profiles under `fonts/<LOCALE>/`, `fonts/NF-<LOCALE>/`, `fonts/Variable-<LOCALE>/`, or `fonts/Variable-NF-<LOCALE>/`; `--nf-mono` and `--nf-propo` use matching standalone directories and are local-only. |
 
-The standalone CJK artifacts under `source/cjk/` are independent from the main pipeline cache under `fonts/`. This document covers CJK decisions and fallback; the global stage lifecycle is in [`../pipeline/README.md`](../pipeline/README.md), and the update/publish procedure is in [`../maintenance.md`](../maintenance.md).
+The standalone CJK artifacts under `sources/cjk/` are independent from the main pipeline cache under `fonts/`. This document covers CJK decisions and fallback; the global stage lifecycle is in [`../pipeline/README.md`](../pipeline/README.md), and the update/publish procedure is in [`../maintenance.md`](../maintenance.md).
 
 ## Static and variable output modes
 
@@ -30,7 +30,7 @@ The default NF profile uses `NF-*` and `Variable-NF-*` directories. `--nf-mono` 
 
 The global `use_hinted` setting, exposed by `--hinted` and `--no-hinted`, chooses the Latin static base and the NF static base used before a static CJK merge. It does not itself AutoHint the merged CJK files. The CJK-specific `cjk.use_hinted` setting controls a second step: after the final plain or NF CJK static fonts are instantiated or merged, it runs AutoHint on those files. These settings are independent; variable CJK outputs are not selected by either static AutoHint step.
 
-`task.py cjk` always rebuilds regular and italic variable bases, even when both files already exist. In the main pipeline, `ensure_cjk_variable_fonts` reuses both existing variable files when `clean_cache` is false and falls back to a fresh `vf_only` source build otherwise. `clean_cache` never deletes files and does not bypass a valid static directory digest: a static directory with all required styles and a matching `static-<locale>.sha256` is reused first.
+`task.py cjk` always rebuilds regular and italic variable bases, even when both files already exist. In the main pipeline, `ensure_cjk_variable_fonts` reuses both existing variable files when `clean_cache` is false and falls back to a fresh `vf_only` source build otherwise. `clean_cache` never deletes files and does not bypass a valid static directory digest: a static directory with all required styles and a matching `static-<locale>.sha256` is reused first. Static base fonts preserve their source overlaps so their hashes stay portable; when a cached static base is merged into a final CJK static font, only newly added CJK glyphs have overlaps removed.
 
 ## Source and fallback order
 
@@ -42,7 +42,7 @@ For a main-pipeline static merge, the actual resolution order is:
 4. **Local variable bases.** If both regular and italic variable files exist and `clean_cache` is false, instantiate the requested static styles locally and validate the resulting directory digest.
 5. **Valid local variable archive.** If the variable files are unavailable, validate and install the generated `<locale>-base-variable.zip` before considering any network source.
 6. **Remote variable archive.** If the local variable archive is unavailable or invalid and the locale has a matching `cjk-base` variable archive, download it, validate its two exact members, `fvar` tables, ZIP integrity, and committed variable hash, then instantiate the requested static styles.
-7. **Source rebuild.** If the remote variable archive is unavailable or invalid, resolve the configured source/download and rebuild the regular and italic variable bases with `vf_only=True`, then instantiate and validate the static styles.
+7. **Source rebuild.** If the remote variable archive is unavailable or invalid, resolve the configured sources/download and rebuild the regular and italic variable bases with `vf_only=True`, then instantiate and validate the static styles.
 
 An existing but invalid static directory is never silently removed, and a failed fallback raises `CJKBaseUnavailable` after the available sources have been tried. Variable-mode release output uses the same local-file, local-archive, validated remote-archive, or source-rebuild rule, without requiring a static directory.
 
@@ -50,7 +50,7 @@ An existing but invalid static directory is never silently removed, and a failed
 
 ```mermaid
 flowchart LR
-    INPUT["preset / JSON / CLI"] --> RESOLVE["resolver.py\nCJKBuildConfig"]
+    INPUT["preset / JSON / CLI"] --> RESOLVE["config.py / cli.py\nCJKBuildConfig"]
     RESOLVE --> SOURCE{"source.path exists?"}
     SOURCE -->|yes| VF["regular + italic variable bases"]
     SOURCE -->|no| DOWNLOAD["download and atomically install source"]
@@ -67,16 +67,23 @@ flowchart LR
 
 | Module                    | Responsibility                                                                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `config.py`               | Typed CJK configuration, Unicode presets, transforms, output defaults, and naming defaults.                                           |
-| `resolver.py`             | JSON/CLI parsing, validation, Unicode and axis overrides, and locale-derived paths and names.                                         |
+| `config.py`               | Typed CJK configuration, Unicode presets, JSON parsing, strict validation, config-file loading, and stable serialization.            |
+| `cli.py`                  | CJK CLI arguments and direct-CLI overrides.                                                                                            |
+| `masters.py`              | Unicode override, axis parsing, source master validation, and stable master ordering.                                                 |
+| `paths.py`                | Locale validation plus derived output, naming, temporary, and config-relative paths.                                                  |
 | `presets.py`              | Built-in CN, JP, TC, and KR metadata and config loading.                                                                              |
-| `builder.py`              | Source resolution, subsetting, master preparation, variable-font generation, static instantiation, and standalone executor lifecycle. |
+| `source.py`               | Source validation, subsetting, outline/metric transforms, CFF2 conversion, and source-master preparation.                             |
+| `instances.py`            | Variable, master, italic, and static instance jobs; worker font cache; and weight-instance mapping.                                    |
+| `postprocess.py`          | Variable/static naming, table cleanup, metric finalization, and Name ID management.                                                    |
+| `builder.py`              | Standalone CJK build orchestration, executor lifecycle, output hashes, and archives.                                                   |
+| `assets.py`               | Verified local/remote static and variable base archive installation.                                                                   |
+| `resolver.py`             | Main-build fallback order: cached static base, installed archive, variable base, then source rebuild.                                  |
 | `outlines.py`             | Glyph command replay, compatibility checks, and CFF/CFF2-to-glyf conversion.                                                          |
 | `variable.py`             | Variable-font loading, master merging, `gvar` construction, italic transforms, and table cleanup.                                     |
 | `cache.py`                | Static-directory and variable-file digest creation, archive validation, and cache checks for standalone CJK assets.                 |
 | `static.py`               | Main-build CJK static naming, metrics, metadata, feature application, and width processing.                                           |
 | `pipeline/cjk_outputs.py` | Merge CJK bases with Maple and Nerd Font outputs and publish final stages.                                                            |
-| `config/runtime.py`       | Resolve local static bases and archives, remote static/variable archives, local VFs, and source regeneration for the main build. |
+| `config/runtime.py`       | Resolved paths, immutable runtime choices, and mutable upstream-output flags for the main build.                               |
 | `task/cjk.py`             | Register `task.py cjk` and dispatch preset, JSON, or direct-CLI builds.                                                               |
 
 ## Generated layout
@@ -85,21 +92,21 @@ For `locale_name: "CN"`, the resolver derives these names; other locales follow 
 
 | Path                                           | Meaning                                               |
 | ---------------------------------------------- | ----------------------------------------------------- |
-| `source/cjk/cn/config-cn.json`                 | Built-in source configuration.                        |
-| `source/cjk/cn/MapleMono-CN-VF.ttf`            | Regular generated variable base.                      |
-| `source/cjk/cn/MapleMono-CN-Italic-VF.ttf`     | Italic generated variable base.                       |
-| `source/cjk/cn/variable-cn.sha256`             | Digest of only the regular and italic variable bases. |
-| `source/cjk/cn/cn-base-variable.zip`           | Regenerated regular/italic variable-base archive.     |
-| `source/cjk/cn/static/MapleMonoCN-<Style>.ttf` | Named static CJK base instance.                       |
-| `source/cjk/cn/static-cn.sha256`               | Digest of the static directory contents.              |
-| `source/cjk/cn/cn-base-static.zip`             | Regenerated static-base archive.                      |
-| `source/cjk/variable-source/`                  | Cached source and Maple feature/metadata font inputs. |
+| `sources/cjk/cn/config-cn.json`                 | Built-in source configuration.                        |
+| `sources/cjk/cn/MapleMono-CN-VF.ttf`            | Regular generated variable base.                      |
+| `sources/cjk/cn/MapleMono-CN-Italic-VF.ttf`     | Italic generated variable base.                       |
+| `sources/cjk/cn/variable-cn.sha256`             | Digest of only the regular and italic variable bases. |
+| `sources/cjk/cn/cn-base-variable.zip`           | Regenerated regular/italic variable-base archive.     |
+| `sources/cjk/cn/static/MapleMonoCN-<Style>.ttf` | Named static CJK base instance.                       |
+| `sources/cjk/cn/static-cn.sha256`               | Digest of the static directory contents.              |
+| `sources/cjk/cn/cn-base-static.zip`             | Regenerated static-base archive.                      |
+| `sources/cjk/variable-source/`                  | Cached source and Maple feature/metadata font inputs. |
 
 These are generated artifacts. Edit the JSON config or generator, then rebuild; never patch a generated font or archive by hand.
 
 ## Configuration and source phases
 
-The public JSON surface is intentionally small: `locale_name`, `freeze_feature`, `source`, `unicode`, and `transform`. `freeze_feature` optionally enables one OpenType feature in generated static CJK fonts; output layout, naming, feature font, temporary paths, and outline mode are derived or fixed by the builder.
+The public JSON surface is intentionally small: `locale_name`, `freeze_feature`, `sources`, `unicode`, and `transform`. `freeze_feature` optionally enables one OpenType feature in generated static CJK fonts; output layout, naming, feature font, temporary paths, and outline mode are derived or fixed by the builder.
 
 ```json
 {
@@ -125,9 +132,9 @@ The build phases are source resolution, Unicode subsetting, 100/400/800 master p
 
 | Preset | Config                         | Source outline | Output directory |
 | ------ | ------------------------------ | -------------- | ---------------- |
-| CN     | `source/cjk/cn/config-cn.json` | `glyf`         | `source/cjk/cn`  |
-| JP     | `source/cjk/jp/config-jp.json` | `CFF2`         | `source/cjk/jp`  |
-| TC     | `source/cjk/tc/config-tc.json` | `glyf`         | `source/cjk/tc`  |
-| KR     | `source/cjk/kr/config-kr.json` | `glyf`         | `source/cjk/kr`  |
+| CN     | `sources/cjk/cn/config-cn.json` | `glyf`         | `sources/cjk/cn`  |
+| JP     | `sources/cjk/jp/config-jp.json` | `CFF2`         | `sources/cjk/jp`  |
+| TC     | `sources/cjk/tc/config-tc.json` | `glyf`         | `sources/cjk/tc`  |
+| KR     | `sources/cjk/kr/config-kr.json` | `glyf`         | `sources/cjk/kr`  |
 
 For focused checks and the CJK base update procedure, see [`../maintenance.md`](../maintenance.md). Avoid a full CJK build unless source download, outline conversion, or generated artifacts are part of the requested change.
