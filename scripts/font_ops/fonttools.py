@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
 from fontTools.ttLib import TTFont as FontToolsTTFont
 from fontTools.ttLib import newTable
@@ -11,6 +11,9 @@ from fontTools.ttLib.removeOverlaps import removeOverlaps as _remove_overlaps
 from fontTools.varLib.instancer import (
     instantiateVariableFont as _instantiate_variable_font,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 class PanoseTable(Protocol):
@@ -20,6 +23,7 @@ class PanoseTable(Protocol):
 
 
 class OS2Table(Protocol):
+    fsType: int
     fsSelection: int
     panose: PanoseTable
     sCapHeight: int
@@ -117,17 +121,6 @@ class MetricsTable(Protocol):
     def __setitem__(self, glyph_name: str, value: tuple[int, int]) -> None: ...
 
 
-class SubsetOptions(Protocol):
-    layout_features: list[str]
-    name_IDs: list[int | str]
-    name_legacy: bool
-    name_languages: list[int | str]
-    notdef_outline: bool
-    recalc_bounds: bool
-    recalc_timestamp: bool
-    recommended_glyphs: bool
-
-
 class TTFont(FontToolsTTFont):
     """FontTools font with typed access for tables used by the build."""
 
@@ -202,9 +195,9 @@ def instantiate_variable_font(
     return adapt_ttfont(instance)
 
 
-def remove_overlaps(font: TTFont) -> None:
-    """Merge overlapping contours and discard invalidated hinting."""
-    _remove_overlaps(font)
+def remove_overlaps(font: TTFont, glyph_names: Iterable[str] | None = None) -> None:
+    """Merge overlapping contours for selected glyphs and discard their hinting."""
+    _remove_overlaps(font, glyphNames=glyph_names)
 
 
 def save_font_atomic(font: TTFont, target_path: str | Path) -> Path:
@@ -233,7 +226,6 @@ __all__ = [
     "OS2Table",
     "PanoseTable",
     "PostTable",
-    "SubsetOptions",
     "TTFont",
     "adapt_ttfont",
     "instantiate_variable_font",

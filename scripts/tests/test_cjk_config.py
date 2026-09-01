@@ -8,15 +8,17 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, cast
 
-from scripts.cjk.config import CJKSourceConfig
-from scripts.cjk.presets import build_preset_config, get_preset
-from scripts.cjk.resolver import (
+from scripts.cjk.cli import (
     add_cjk_arguments,
     apply_cli_overrides,
+)
+from scripts.cjk.config import (
+    CJKSourceConfig,
     config_from_data,
     config_from_json,
     serialize_cjk_build_config,
 )
+from scripts.cjk.presets import build_preset_config, get_preset
 
 
 def custom_config_data() -> dict[str, Any]:
@@ -116,7 +118,7 @@ class CJKConfigSurfaceTest(unittest.TestCase):
         parser = argparse.ArgumentParser()
         add_cjk_arguments(parser)
         schema = json.loads(
-            Path("source/cjk/cjk_schema.json").read_text(encoding="utf-8")
+            Path("sources/cjk/cjk_schema.json").read_text(encoding="utf-8")
         )
         config = build_preset_config("cn")
 
@@ -345,14 +347,14 @@ class CJKConfigSurfaceTest(unittest.TestCase):
 
     def test_cjk_schema_removes_feature_font(self) -> None:
         schema = json.loads(
-            Path("source/cjk/cjk_schema.json").read_text(encoding="utf-8")
+            Path("sources/cjk/cjk_schema.json").read_text(encoding="utf-8")
         )
 
         self.assertNotIn("feature_font", schema["properties"])
 
     def test_cjk_schema_exposes_optional_download_object(self) -> None:
         schema = json.loads(
-            Path("source/cjk/cjk_schema.json").read_text(encoding="utf-8")
+            Path("sources/cjk/cjk_schema.json").read_text(encoding="utf-8")
         )
         source_schema = schema["properties"]["source"]
 
@@ -365,15 +367,15 @@ class CJKConfigSurfaceTest(unittest.TestCase):
         self.assertNotIn("download_url", source_schema["properties"])
 
     def test_builtin_jp_download_selects_fixed_archive_member(self) -> None:
-        config = config_from_json("source/cjk/jp/config-jp.json")
+        config = config_from_json("sources/cjk/jp/config-jp.json")
 
         self.assertEqual(
             get_preset("jp").config_path,
-            Path("source/cjk/jp/config-jp.json"),
+            Path("sources/cjk/jp/config-jp.json"),
         )
         self.assertEqual(
             config.source.path.resolve(),
-            Path("source/cjk/variable-source/ResourceHanRoundedJP-VF.otf").resolve(),
+            Path("sources/cjk/variable-source/ResourceHanRoundedJP-VF.otf").resolve(),
         )
         self.assertIsNotNone(config.source.download)
         assert config.source.download is not None
@@ -388,7 +390,7 @@ class CJKConfigSurfaceTest(unittest.TestCase):
         )
 
     def test_top_level_schema_wraps_custom_entries_with_enable(self) -> None:
-        schema = json.loads(Path("source/schema.json").read_text(encoding="utf-8"))
+        schema = json.loads(Path("sources/schema.json").read_text(encoding="utf-8"))
         custom_item = schema["properties"]["cjk"]["properties"]["locales"][
             "properties"
         ]["custom"]["items"]
