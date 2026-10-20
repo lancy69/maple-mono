@@ -1,13 +1,14 @@
 {
   "$schema": "./sources/schema.json",
   "family_name": "Maple Mono",
-  "font_version": "8.002",
+  "font_version": "8.003",
   "formats": [
     "ttf",
     "otf",
     "woff2"
   ],
   "use_hinted": true,
+  "legacy_thin_weight_class": false,
   "standard_zero": false,
   "pool_size": 4,
   "ttfautohint_param": {},
